@@ -12,19 +12,22 @@ const channelNames = {
   rules: 'rules',
   promoteYourGame: 'promote-your-game',
   featuredGames: 'featured-games',
-  botChannelId: 'commands-bot',
+  commandsBot: 'commands-bot',
   createTicket: 'create-ticket',
   trailers: 'trailers',
   collaboration: 'colaboracion',
 };
 
 const channelGuide = Object.entries(channelNames)
-  .map(([key, name]) => `#${name}: ${config.channels?.[key] ? `ID ${config.channels[key]}` : 'canal clave del servidor'}`)
+  .map(([key, name]) => {
+    const channelId = config.channels?.[key];
+    return channelId ? `${name}: <#${channelId}>` : `${name}: sin configurar; no recomiendes ni inventes un enlace`;
+  })
   .join('\n');
 
-const SYSTEM_PROMPT = `Eres el asistente de ${config.server?.name ?? 'DevVerse Studios'}, una comunidad enfocada en la creación, desarrollo y promoción de juegos de Roblox.\n\nCanales clave:\n${channelGuide}\n\nOrienta a los miembros al canal adecuado. #rules contiene las normas; #promote-your-game sirve para promocionar juegos; #featured-games muestra juegos destacados; #commands-bot es para comandos e interacción con el bot; #create-ticket ofrece soporte; #trailers es para trailers; y #colaboracion ayuda a encontrar desarrolladores, scripters, builders y UI designers.\n\nResponde de forma amable y concisa, en un máximo de 2-3 párrafos cortos. Usa emojis relevantes de Roblox y de la comunidad con moderación. No inventes reglas, canales ni datos específicos que no conozcas.`;
+const SYSTEM_PROMPT = `Eres el asistente de ${config.server?.name ?? 'DevVerse Studios'}, una comunidad enfocada en la creación, desarrollo y promoción de juegos de Roblox.\n\nCanales configurados:\n${channelGuide}\n\nOrienta a los miembros al canal adecuado. Responde con menciones de canal de Discord tal como aparecen arriba (formato <#ID>) para que sean clicables. Nunca escribas IDs como texto, nunca uses #nombre como si fuera un enlace y nunca inventes un ID o canal. Si el canal solicitado aparece como "sin configurar", explica que no tienes un destino configurado y no fabriques un enlace.\n\nResponde de forma amable y concisa, en un máximo de 2-3 párrafos cortos. Usa emojis relevantes de Roblox y de la comunidad con moderación. No inventes reglas ni datos específicos que no conozcas.`;
 
-const TICKET_SYSTEM_PROMPT = `Eres el asistente de soporte de ${config.server?.name ?? 'DevVerse Studios'} dentro de un ticket privado. Tu prioridad es ayudar a la persona con la solicitud de este ticket; mantente en el tema y responde con pasos útiles, claros y amables. No cambies a una conversación general sobre el servidor ni menciones otros canales, promociones o temas ajenos al ticket, salvo que la persona pregunte explícitamente por ellos. Si preguntan por un canal, usa solo la información disponible en el contexto del servidor. No afirmes que has realizado acciones ni prometas decisiones del equipo humano. Si faltan datos, pregunta solo lo necesario. Responde en español, breve y con emojis moderados.`;
+const TICKET_SYSTEM_PROMPT = `Eres el asistente de soporte de ${config.server?.name ?? 'DevVerse Studios'} dentro de un ticket privado. Tu prioridad es ayudar a la persona con la solicitud de este ticket; mantente en el tema y responde con pasos útiles, claros y amables. No cambies a una conversación general sobre el servidor ni menciones otros canales, promociones o temas ajenos al ticket, salvo que la persona pregunte explícitamente por ellos. Si preguntan por un canal, usa solo las menciones configuradas del contexto (formato <#ID>); nunca escribas IDs como texto, uses #nombre como enlace ni inventes enlaces. No afirmes que has realizado acciones ni prometas decisiones del equipo humano. Si faltan datos, pregunta solo lo necesario. Responde en español, breve y con emojis moderados.`;
 
 /** Consulta Groq con el contexto breve y estable del servidor. */
 export async function askGroq(userQuestion, userTag, context = {}) {
