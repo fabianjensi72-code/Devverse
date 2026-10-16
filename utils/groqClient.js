@@ -25,7 +25,7 @@ export async function askGroq(userQuestion, userTag) {
   if (!groq) throw new Error('GROQ_API_KEY no está configurada en el archivo .env.');
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: `Mi usuario es ${userTag}. Mi pregunta es: ${userQuestion}` },
@@ -34,5 +34,5 @@ export async function askGroq(userQuestion, userTag) {
     temperature: 0.6,
   });
 
-  return completion.choices[0]?.message?.content?.trim() || 'No pude generar una respuesta esta vez. Inténtalo de nuevo.';
+  return completion.choices[0]?.message?.content?.trim() || 'No pude generar una respuesta esta vez.';
 }
