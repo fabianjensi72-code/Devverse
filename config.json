@@ -14,6 +14,7 @@
     "createTicket": "1502442612127436960",
     "ticketChannelId": "1502442612127436960",
     "ticketCategoryId": "",
+    "ticketLogChannelId": "1502430789936218213",
     "trailers": "",
     "collaboration": "",
     "commandsBot": "",
@@ -37,4 +38,3 @@
     "ticketOpenSeconds": 60
   }
 }
-
