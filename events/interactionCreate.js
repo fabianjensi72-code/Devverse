@@ -2,10 +2,12 @@ import { Events } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder } from 'discord.js';
 import config from '../config.json' with { type: 'json' };
 import { HELP_TOPICS } from '../commands/ayuda.js';
+import { handleTicketInteraction } from '../utils/ticketHandler.js';
 
 const channels = config.channels ?? {};
 
 async function handleComponent(interaction) {
+  if (await handleTicketInteraction(interaction)) return true;
   if (interaction.isStringSelectMenu() && interaction.customId === 'ayuda:tema') {
     const topic = HELP_TOPICS[interaction.values[0]];
     if (!topic) {
