@@ -25,7 +25,11 @@
     "member": "",
     "developer": "",
     "moderator": "",
-    "ticketStaff": ""
+    "ticketNotifyRoles": [
+      "1502440226935799949",
+      "1502440224326684672",
+      "1502440223110332438"
+    ]
   },
   "cooldowns": {
     "aiUserSeconds": 20,
