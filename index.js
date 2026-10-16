@@ -1,10 +1,14 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client, Collection, GatewayIntentBits, REST, Routes } from 'discord.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Carga explícitamente el .env situado junto a index.js, independientemente
+// de la carpeta desde la que PM2 o Termux ejecuten el proceso.
+dotenv.config({ path: path.join(__dirname, '.env') });
+
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
