@@ -110,6 +110,13 @@ function getAdminRoles(guild) {
   );
 }
 
+function getTicketStaffRoles(guild) {
+  const configuredIds = Array.isArray(config.roles?.ticketNotifyRoles)
+    ? config.roles.ticketNotifyRoles
+    : [];
+  return configuredIds.filter((id) => guild.roles.cache.has(id));
+}
+
 async function createTicket(interaction, type) {
   if (!interaction.inGuild()) {
     await interaction.reply({ content: 'Los tickets solo se pueden abrir dentro del servidor.', ephemeral: true });
@@ -138,6 +145,7 @@ async function createTicket(interaction, type) {
   try {
     await interaction.deferReply({ ephemeral: true });
     const adminRoles = getAdminRoles(guild);
+    const ticketStaffRoleIds = getTicketStaffRoles(guild);
     const botMember = guild.members.me ?? await guild.members.fetchMe();
     const parentId = config.channels?.ticketCategoryId || config.channels?.supportCategoryId || null;
     let parent;
@@ -166,8 +174,8 @@ async function createTicket(interaction, type) {
         id: botMember.id,
         allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageChannels],
       },
-      ...adminRoles.map((role) => ({
-        id: role.id,
+      ...[...new Set([...adminRoles.keys(), ...ticketStaffRoleIds])].map((roleId) => ({
+        id: roleId,
         allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
       })),
     ];
@@ -200,14 +208,15 @@ async function createTicket(interaction, type) {
         .setLabel('🔒 Cerrar ticket')
         .setStyle(ButtonStyle.Danger),
     );
-    const roleMentions = [...adminRoles.keys()];
-    const staffMention = roleMentions.length ? roleMentions.map((id) => `<@&${id}>`).join(' ') : '**Equipo administrativo**';
+    const staffMention = ticketStaffRoleIds.length
+      ? ticketStaffRoleIds.map((id) => `<@&${id}>`).join(' ')
+      : '**Equipo de soporte**';
 
     await channel.send({
       content: `📬 **Nueva solicitud** • <@${userId}> • ${staffMention}\nGracias por escribirnos. Añade aquí cualquier información que ayude al equipo a atenderte.`,
       embeds: [embed],
       components: [closeRow],
-      allowedMentions: { users: [userId], roles: roleMentions },
+      allowedMentions: { users: [userId], roles: ticketStaffRoleIds },
     });
     const cooldownExpiry = Date.now() + TICKET_COOLDOWN_MS;
     if (TICKET_COOLDOWN_MS > 0) ticketCooldowns.set(userId, cooldownExpiry);
