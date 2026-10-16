@@ -1,0 +1,17 @@
+{
+  "name": "devverse-studios-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bot modular de Discord para DevVerse Studios",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "update:bot": "git pull --ff-only && pm2 restart devverse-bot"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "discord.js": "^14.21.0",
+    "dotenv": "^16.6.1",
+    "groq-sdk": "^0.30.0"
+  }
+}

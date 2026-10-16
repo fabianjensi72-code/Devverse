@@ -1,0 +1,27 @@
+{
+  "server": {
+    "name": "DevVerse Studios",
+    "description": "Comunidad de desarrollo de juegos de Roblox"
+  },
+  "channels": {
+    "welcomeChannelId": "1502479796662304818",
+    "botChannelId": "",
+    "welcome": "",
+    "rules": "1502432622305869965",
+    "announcements": "",
+    "promoteYourGame": "1555814030373945364",
+    "featuredGames": "",
+    "createTicket": "1502442612127436960",
+    "trailers": "",
+    "collaboration": "",
+    "commandsBot": "",
+    "general": "",
+    "development": "",
+    "support": ""
+  },
+  "roles": {
+    "member": "",
+    "developer": "",
+    "moderator": ""
+  }
+}
