@@ -16,6 +16,7 @@ const ticketButtons = [
   ['ticket_colab', '🤝 Colaboraciones', ButtonStyle.Primary],
   ['ticket_dona', '💸 Donaciones', ButtonStyle.Success],
 ];
+const ticketCooldownSeconds = Number(config.cooldowns?.ticketOpenSeconds ?? 60);
 
 export default {
   data: new SlashCommandBuilder()
@@ -38,13 +39,22 @@ export default {
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
+      .setAuthor({
+        name: 'DEVVERSE STUDIOS • SOPORTE',
+        iconURL: interaction.client.user.displayAvatarURL(),
+      })
       .setTitle('📩 Centro de Soporte y Atención')
       .setDescription(
-        '¿Necesitas ayuda del equipo de DevVerse Studios? Elige una opción para abrir un ticket privado. ' +
-        'Cuéntanos los detalles en el formulario y un administrador te atenderá lo antes posible.\n\n' +
-        '🔒 Solo tú y el equipo administrativo podrán ver el canal de tu ticket.',
+        'Abre una solicitud privada con el equipo de **DevVerse Studios**. Selecciona el tema y completa el formulario para que podamos ayudarte con contexto.',
       )
-      .setFooter({ text: 'DevVerse Studios • Centro de soporte' });
+      .addFields(
+        { name: '🆘 Ayuda y reportes', value: 'Soporte general, reportar usuarios o avisar de errores del juego.', inline: true },
+        { name: '🤝 Comunidad', value: 'Propuestas de colaboración y consultas de donación.', inline: true },
+        { name: '🔐 Privacidad', value: 'El canal será visible para ti y el equipo administrativo. Nunca compartas contraseñas ni claves API.', inline: false },
+      )
+      .setThumbnail(interaction.client.user.displayAvatarURL())
+      .setFooter({ text: `Elige una opción • Espera ${ticketCooldownSeconds} s entre solicitudes` })
+      .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
       ...ticketButtons.map(([customId, label, style]) =>
@@ -52,7 +62,12 @@ export default {
       ),
     );
 
-    await channel.send({ embeds: [embed], components: [row] });
+    await channel.send({
+      content: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      embeds: [embed],
+      components: [row],
+    });
     await interaction.reply({ content: `Panel de tickets publicado en <#${channel.id}>.`, ephemeral: true });
   },
 };
+
