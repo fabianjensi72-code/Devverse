@@ -1,4 +1,4 @@
-import { EmbedBuilder, Events } from 'discord.js';
+import { EmbedBuilder, Events, PermissionFlagsBits } from 'discord.js';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -9,6 +9,7 @@ const config = JSON.parse(await readFile(configPath, 'utf8'));
 const botChannelId = config.channels?.botChannelId || config.channels?.commandsBot;
 const serverName = config.server?.name ?? 'DevVerse Studios';
 const userCooldowns = new Map();
+const ticketStaffRoleIds = new Set(Array.isArray(config.roles?.ticketNotifyRoles) ? config.roles.ticketNotifyRoles : []);
 const userCooldownMs = Math.max(0, Number(config.cooldowns?.aiUserSeconds ?? 20)) * 1000;
 const globalIntervalMs = Math.max(0, Number(config.cooldowns?.aiGlobalSeconds ?? 2)) * 1000;
 let groqQueue = Promise.resolve();
@@ -18,12 +19,12 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function enqueueGroq(question, userTag) {
+function enqueueGroq(question, userTag, context) {
   const request = groqQueue.then(async () => {
     const delay = Math.max(0, globalIntervalMs - (Date.now() - lastGroqRequestAt));
     if (delay) await wait(delay);
     lastGroqRequestAt = Date.now();
-    return askGroq(question, userTag);
+    return askGroq(question, userTag, context);
   });
   groqQueue = request.then(() => undefined, () => undefined);
   return request;
@@ -36,7 +37,12 @@ export default {
 
     const mentioned = message.mentions.has(client.user);
     const isBotChannel = Boolean(botChannelId) && message.channelId === botChannelId;
-    if (!mentioned && !isBotChannel) return;
+    const ticketOwnerId = message.channel.topic?.match(/ticket-owner:(\d+)/)?.[1];
+    const isTicket = Boolean(ticketOwnerId);
+    const isTicketStaff = Boolean(message.member?.permissions.has(PermissionFlagsBits.Administrator))
+      || Boolean(message.member?.roles.cache.some((role) => ticketStaffRoleIds.has(role.id)));
+    const autoAnswerInTicket = isTicket && message.author.id === ticketOwnerId && !isTicketStaff;
+    if (!mentioned && !isBotChannel && !autoAnswerInTicket) return;
 
     const question = message.content
       .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
@@ -63,7 +69,11 @@ export default {
 
     try {
       await message.channel.sendTyping();
-      const answer = await enqueueGroq(question, message.author.tag);
+      const ticketType = message.channel.topic?.match(/type:([\w-]+)/)?.[1];
+      const answer = await enqueueGroq(question, message.author.tag, {
+        inTicket: isTicket,
+        ticketType,
+      });
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
