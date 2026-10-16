@@ -16,6 +16,7 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from '../config.json' with { type: 'json' };
+import { summarizeTicketWithGroq } from './groqClient.js';
 
 const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
 const counterPath = path.join(dataDirectory, 'tickets.json');
@@ -150,7 +151,7 @@ function getClaimedUserId(channel) {
   return channel.topic?.match(/claimed-by:(\d+)/)?.[1] ?? null;
 }
 
-function summarizeMessages(messages, botUserId) {
+function getConversationText(messages, botUserId) {
   const entries = [];
   const ordered = [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
   for (const message of ordered) {
@@ -169,7 +170,7 @@ function summarizeMessages(messages, botUserId) {
     const text = parts.join(' • ').replace(/\s+/g, ' ').trim();
     if (text) entries.push(`• **${author}**: ${text.slice(0, 240)}`);
   }
-  return entries.length ? entries.slice(-6).join('\n').slice(0, 1400) : 'Todavía no hay mensajes para resumir.';
+  return entries.slice(-20).join('\n').slice(0, 5000) || 'Todavía no hay mensajes para resumir.';
 }
 
 function ratingComponents(guildId, channelName, ownerId, claimedUserId) {
@@ -401,7 +402,20 @@ async function claimTicket(interaction) {
     await interaction.deferReply({ ephemeral: true });
     await channel.setTopic(`${channel.topic} claimed-by:${interaction.user.id}`.slice(0, 1024));
     const messages = await channel.messages.fetch({ limit: 30 });
-    const summary = summarizeMessages(messages, interaction.client.user.id);
+    const conversation = getConversationText(messages, interaction.client.user.id);
+    const requesterName = messages.find((message) => message.author.id === ownerId)?.member?.displayName
+      ?? messages.find((message) => message.author.id === ownerId)?.author.username
+      ?? 'el usuario';
+    const staffName = interaction.member?.displayName ?? interaction.user.username;
+    let summary;
+    try {
+      summary = await summarizeTicketWithGroq(conversation, requesterName, staffName);
+    } catch (error) {
+      console.error('No se pudo redactar el resumen del ticket con Groq; usaré un resumen local:', error);
+      summary = conversation === 'Todavía no hay mensajes para resumir.'
+        ? conversation
+        : `El usuario explicó su solicitud en el formulario y la conversación reciente incluye: ${conversation.replace(/\n/g, ' ').slice(0, 900)}`;
+    }
     await interaction.message.edit({ components: [ticketControls(true)] }).catch((error) => {
       console.error('No se pudo actualizar el botón de reclamo:', error);
     });
@@ -409,7 +423,7 @@ async function claimTicket(interaction) {
     const summaryEmbed = new EmbedBuilder()
       .setColor(0x3498db)
       .setTitle('🙋 Ticket reclamado')
-      .setDescription(`<@${interaction.user.id}> se hará cargo de esta solicitud.\n\n**Resumen de la conversación**\n${summary}`)
+      .setDescription(`<@${interaction.user.id}> se hará cargo de esta solicitud.\n\n**Resumen para el staff**\nHola <@${interaction.user.id}>: <@${ownerId}> ${summary}`)
       .setFooter({ text: `Ticket ${channel.name} • DevVerse Studios` })
       .setTimestamp();
     await channel.send({
