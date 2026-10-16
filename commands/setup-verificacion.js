@@ -8,6 +8,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import { getVerificationSettings, saveVerificationSettings } from '../utils/robloxVerification.js';
+import config from '../config.json' with { type: 'json' };
 
 export default {
   data: new SlashCommandBuilder()
@@ -60,8 +61,11 @@ export default {
     }
 
     const previousSettings = await getVerificationSettings();
-    let channel = previousSettings.guildId === guild.id && previousSettings.channelId
-      ? await guild.channels.fetch(previousSettings.channelId).catch(() => null)
+    const configuredChannelId = previousSettings.guildId === guild.id && previousSettings.channelId
+      ? previousSettings.channelId
+      : config.channels?.verificationChannelId;
+    let channel = configuredChannelId
+      ? await guild.channels.fetch(configuredChannelId).catch(() => null)
       : null;
     if (!channel) {
       channel = await guild.channels.create({
@@ -83,7 +87,7 @@ export default {
       });
     }
     if (channel.type !== ChannelType.GuildText) {
-      await interaction.editReply('El canal de verificación guardado ya no es un canal de texto. Elimina su configuración y vuelve a ejecutar el comando.');
+      await interaction.editReply('El canal de verificación guardado no es un canal de texto. Configura otro canal de verificación y vuelve a ejecutar el comando.');
       return;
     }
 
@@ -107,13 +111,12 @@ export default {
         '3. Vuelve aquí y pulsa **Ya puse el código**.',
         '',
         'No compartas tu contraseña, cookies ni códigos de inicio de sesión. El código temporal solo demuestra que puedes editar la descripción de ese perfil.',
-      ].join('\n'))
+      ].join('\\n'))
       .setFooter({ text: 'El código vence en 15 minutos • DevVerse Studios' });
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('roblox_verify_start').setLabel('🎮 Verificar Roblox').setStyle(ButtonStyle.Primary),
     );
     await channel.send({ embeds: [embed], components: [row] });
-    await interaction.editReply(`Canal y panel listos: <#${channel.id}>. Al verificar, se asignará ${verifiedRoles.map((role) => `<@&${role.id}>`).join(' y ')}${unverifiedRole ? ` y se quitará <@&${unverifiedRole.id}>` : ''}.`);
+    await interaction.editReply(`Panel de verificación publicado en <#${channel.id}>. Al verificar, se asignará ${verifiedRoles.map((role) => `<@&${role.id}>`).join(' y ')}${unverifiedRole ? ` y se quitará <@&${unverifiedRole.id}>` : ''}.`);
   },
 };
-
