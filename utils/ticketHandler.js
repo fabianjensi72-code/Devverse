@@ -46,8 +46,18 @@ const typeLabels = {
   colab: 'Colaboración',
   dona: 'Donaciones',
 };
+const typeColors = {
+  soporte: 0x5865f2,
+  reporte: 0xed4245,
+  bug: 0xf1c40f,
+  colab: 0x3498db,
+  dona: 0x2ecc71,
+};
 
 let counterQueue = Promise.resolve();
+const pendingTicketUsers = new Set();
+const ticketCooldowns = new Map();
+const TICKET_COOLDOWN_MS = Math.max(0, Number(config.cooldowns?.ticketOpenSeconds ?? 60)) * 1000;
 
 async function reserveTicketNumber() {
   const reserve = async () => {
@@ -106,80 +116,105 @@ async function createTicket(interaction, type) {
     return;
   }
 
-  await interaction.deferReply({ ephemeral: true });
   const guild = interaction.guild;
-  const adminRoles = getAdminRoles(guild);
-  const botMember = guild.members.me ?? await guild.members.fetchMe();
-  const parentId = config.channels?.ticketCategoryId || config.channels?.supportCategoryId || null;
-  let parent;
-
-  if (parentId) {
-    parent = await guild.channels.fetch(parentId).catch(() => null);
-    if (!parent || parent.type !== ChannelType.GuildCategory) {
-      await interaction.editReply('La categoría de tickets configurada no existe o no es una categoría. Avísale al Staff.');
-      return;
-    }
+  const userId = interaction.user.id;
+  if (pendingTicketUsers.has(userId)) {
+    await interaction.reply({ content: 'Ya estoy creando tu ticket. Espera un momento antes de intentarlo otra vez.', ephemeral: true });
+    return;
   }
 
-  const number = await reserveTicketNumber();
-  const channelName = `ticket-${String(number).padStart(3, '0')}`;
+  const now = Date.now();
+  for (const [id, expiresAt] of ticketCooldowns) {
+    if (expiresAt <= now) ticketCooldowns.delete(id);
+  }
+  const expiresAt = ticketCooldowns.get(userId) ?? 0;
+  const waitSeconds = Math.ceil((expiresAt - now) / 1000);
+  if (waitSeconds > 0) {
+    await interaction.reply({ content: `Espera ${waitSeconds} segundos antes de abrir otro ticket.`, ephemeral: true });
+    return;
+  }
 
-  const overwrites = [
-    {
-      id: guild.id,
-      deny: [PermissionFlagsBits.ViewChannel],
-    },
-    {
-      id: interaction.user.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles],
-    },
-    {
-      id: botMember.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageChannels],
-    },
-    ...adminRoles.map((role) => ({
-      id: role.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-    })),
-  ];
+  pendingTicketUsers.add(userId);
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const adminRoles = getAdminRoles(guild);
+    const botMember = guild.members.me ?? await guild.members.fetchMe();
+    const parentId = config.channels?.ticketCategoryId || config.channels?.supportCategoryId || null;
+    let parent;
 
-  const channel = await guild.channels.create({
-    name: channelName,
-    type: ChannelType.GuildText,
-    ...(parent ? { parent: parent.id } : {}),
-    topic: `ticket-owner:${interaction.user.id} type:${type}`,
-    permissionOverwrites: overwrites,
-    reason: `Ticket ${number} (${typeLabels[type]}) abierto por ${interaction.user.tag}`,
-  });
+    if (parentId) {
+      parent = await guild.channels.fetch(parentId).catch(() => null);
+      if (!parent || parent.type !== ChannelType.GuildCategory) {
+        await interaction.editReply('La categoría de tickets configurada no existe o no es una categoría. Avísale al Staff.');
+        return;
+      }
+    }
 
-  const answers = fieldCatalog[type].map(([id, label]) => ({
-    name: label,
-    value: interaction.fields.getTextInputValue(id).trim().slice(0, 1024) || '—',
-    inline: false,
-  }));
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`📩 ${typeLabels[type]} • ${channelName}`)
-    .setDescription(`Ticket abierto por <@${interaction.user.id}>. El equipo administrativo revisará la solicitud.`)
-    .addFields(...answers)
-    .setFooter({ text: 'DevVerse Studios • Centro de soporte' })
-    .setTimestamp();
-  const closeRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('close_ticket')
-      .setLabel('🔒 Cerrar Ticket')
-      .setStyle(ButtonStyle.Secondary),
-  );
-  const roleMentions = [...adminRoles.keys()];
-  const staffMention = roleMentions.length ? roleMentions.map((id) => `<@&${id}>`).join(' ') : 'equipo administrativo';
+    const number = await reserveTicketNumber();
+    const channelName = `ticket-${String(number).padStart(3, '0')}`;
 
-  await channel.send({
-    content: `<@${interaction.user.id}> • ${staffMention}\nGracias por contactar al equipo. Describe cualquier información adicional aquí; cerraremos este canal cuando la atención termine.`,
-    embeds: [embed],
-    components: [closeRow],
-    allowedMentions: { users: [interaction.user.id], roles: roleMentions },
-  });
-  await interaction.editReply(`Tu ticket está listo: <#${channel.id}>. El equipo te atenderá allí.`);
+    const overwrites = [
+      {
+        id: guild.id,
+        deny: [PermissionFlagsBits.ViewChannel],
+      },
+      {
+        id: interaction.user.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles],
+      },
+      {
+        id: botMember.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageChannels],
+      },
+      ...adminRoles.map((role) => ({
+        id: role.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+      })),
+    ];
+
+    const channel = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      ...(parent ? { parent: parent.id } : {}),
+      topic: `ticket-owner:${interaction.user.id} type:${type}`,
+      permissionOverwrites: overwrites,
+      reason: `Ticket ${number} (${typeLabels[type]}) abierto por ${interaction.user.tag}`,
+    });
+
+    const answers = fieldCatalog[type].map(([id, label]) => ({
+      name: label,
+      value: interaction.fields.getTextInputValue(id).trim().slice(0, 1024) || '—',
+      inline: false,
+    }));
+    const embed = new EmbedBuilder()
+      .setColor(typeColors[type])
+      .setAuthor({ name: `DEVVERSE STUDIOS • ${typeLabels[type].toUpperCase()}`, iconURL: interaction.client.user.displayAvatarURL() })
+      .setTitle(`📩 ${channelName}`)
+      .setDescription(`**Solicitud de <@${userId}>**\nEl equipo administrativo revisará los detalles y responderá aquí.`)
+      .addFields(...answers)
+      .setFooter({ text: 'No compartas contraseñas ni claves API • DevVerse Studios' })
+      .setTimestamp();
+    const closeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('close_ticket')
+        .setLabel('🔒 Cerrar ticket')
+        .setStyle(ButtonStyle.Danger),
+    );
+    const roleMentions = [...adminRoles.keys()];
+    const staffMention = roleMentions.length ? roleMentions.map((id) => `<@&${id}>`).join(' ') : '**Equipo administrativo**';
+
+    await channel.send({
+      content: `📬 **Nueva solicitud** • <@${userId}> • ${staffMention}\nGracias por escribirnos. Añade aquí cualquier información que ayude al equipo a atenderte.`,
+      embeds: [embed],
+      components: [closeRow],
+      allowedMentions: { users: [userId], roles: roleMentions },
+    });
+    const cooldownExpiry = Date.now() + TICKET_COOLDOWN_MS;
+    if (TICKET_COOLDOWN_MS > 0) ticketCooldowns.set(userId, cooldownExpiry);
+    await interaction.editReply(`Tu ticket está listo: <#${channel.id}>. El equipo te atenderá allí.`);
+  } finally {
+    pendingTicketUsers.delete(userId);
+  }
 }
 
 async function closeTicket(interaction) {
@@ -189,7 +224,7 @@ async function closeTicket(interaction) {
     return;
   }
 
-  const ownerId = channel.topic?.match(/ticket-owner:(\\d+)/)?.[1];
+  const ownerId = channel.topic?.match(/ticket-owner:(\d+)/)?.[1];
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
   if (interaction.user.id !== ownerId && !isAdmin) {
     await interaction.reply({ content: 'Solo quien abrió el ticket o un administrador puede cerrarlo.', ephemeral: true });
@@ -231,3 +266,4 @@ export async function handleTicketInteraction(interaction) {
 
   return false;
 }
+
