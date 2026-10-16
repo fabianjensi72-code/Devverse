@@ -8,6 +8,26 @@ const configPath = fileURLToPath(new URL('../config.json', import.meta.url));
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const botChannelId = config.channels?.botChannelId || config.channels?.commandsBot;
 const serverName = config.server?.name ?? 'DevVerse Studios';
+const userCooldowns = new Map();
+const userCooldownMs = Math.max(0, Number(config.cooldowns?.aiUserSeconds ?? 20)) * 1000;
+const globalIntervalMs = Math.max(0, Number(config.cooldowns?.aiGlobalSeconds ?? 2)) * 1000;
+let groqQueue = Promise.resolve();
+let lastGroqRequestAt = 0;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function enqueueGroq(question, userTag) {
+  const request = groqQueue.then(async () => {
+    const delay = Math.max(0, globalIntervalMs - (Date.now() - lastGroqRequestAt));
+    if (delay) await wait(delay);
+    lastGroqRequestAt = Date.now();
+    return askGroq(question, userTag);
+  });
+  groqQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
 
 export default {
   name: Events.MessageCreate,
@@ -26,9 +46,24 @@ export default {
       return;
     }
 
+    const now = Date.now();
+    for (const [userId, expiresAt] of userCooldowns) {
+      if (expiresAt <= now) userCooldowns.delete(userId);
+    }
+    const expiresAt = userCooldowns.get(message.author.id) ?? 0;
+    if (expiresAt > now) {
+      const seconds = Math.ceil((expiresAt - now) / 1000);
+      await message.reply({
+        content: `¡Te leí! Para cuidar el servicio, espera **${seconds} s** antes de volver a preguntarme. ⏳`,
+        allowedMentions: { repliedUser: false },
+      }).catch(console.error);
+      return;
+    }
+    userCooldowns.set(message.author.id, now + userCooldownMs);
+
     try {
       await message.channel.sendTyping();
-      const answer = await askGroq(question, message.author.tag);
+      const answer = await enqueueGroq(question, message.author.tag);
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
@@ -46,3 +81,4 @@ export default {
     }
   },
 };
+
