@@ -2,7 +2,11 @@ import Groq from 'groq-sdk';
 import config from '../config.json' with { type: 'json' };
 
 const apiKey = process.env.GROQ_API_KEY;
-const groq = apiKey && apiKey !== 'tu_groq_key_aqui' ? new Groq({ apiKey }) : null;
+// Usa el fetch nativo de Node (Undici), igual que la prueba directa de Termux.
+// Esto evita cierres prematuros observados con node-fetch en algunos móviles.
+const groq = apiKey && apiKey !== 'tu_groq_key_aqui'
+  ? new Groq({ apiKey, fetch: globalThis.fetch })
+  : null;
 
 const channelNames = {
   rules: 'rules',
@@ -16,9 +20,9 @@ const channelNames = {
 
 const channelGuide = Object.entries(channelNames)
   .map(([key, name]) => `#${name}: ${config.channels?.[key] ? `ID ${config.channels[key]}` : 'canal clave del servidor'}`)
-  .join('\n');
+  .join('\\n');
 
-const SYSTEM_PROMPT = `Eres el asistente de ${config.server?.name ?? 'DevVerse Studios'}, una comunidad enfocada en la creación, desarrollo y promoción de juegos de Roblox.\n\nCanales clave:\n${channelGuide}\n\nOrienta a los miembros al canal adecuado. #rules contiene las normas; #promote-your-game sirve para promocionar juegos; #featured-games muestra juegos destacados; #commands-bot es para comandos e interacción con el bot; #create-ticket ofrece soporte; #trailers es para trailers; y #colaboracion ayuda a encontrar desarrolladores, scripters, builders y UI designers.\n\nResponde de forma amable y concisa, en un máximo de 2-3 párrafos cortos. Usa emojis relevantes de Roblox y de la comunidad con moderación. No inventes reglas, canales ni datos específicos que no conozcas.`;
+const SYSTEM_PROMPT = `Eres el asistente de ${config.server?.name ?? 'DevVerse Studios'}, una comunidad enfocada en la creación, desarrollo y promoción de juegos de Roblox.\\n\\nCanales clave:\\n${channelGuide}\\n\\nOrienta a los miembros al canal adecuado. #rules contiene las normas; #promote-your-game sirve para promocionar juegos; #featured-games muestra juegos destacados; #commands-bot es para comandos e interacción con el bot; #create-ticket ofrece soporte; #trailers es para trailers; y #colaboracion ayuda a encontrar desarrolladores, scripters, builders y UI designers.\\n\\nResponde de forma amable y concisa, en un máximo de 2-3 párrafos cortos. Usa emojis relevantes de Roblox y de la comunidad con moderación. No inventes reglas, canales ni datos específicos que no conozcas.`;
 
 /** Consulta Groq con el contexto breve y estable del servidor. */
 export async function askGroq(userQuestion, userTag) {
