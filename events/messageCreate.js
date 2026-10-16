@@ -14,6 +14,7 @@ const userCooldownMs = Math.max(0, Number(config.cooldowns?.aiUserSeconds ?? 20)
 const globalIntervalMs = Math.max(0, Number(config.cooldowns?.aiGlobalSeconds ?? 2)) * 1000;
 let groqQueue = Promise.resolve();
 let lastGroqRequestAt = 0;
+let translationQueue = Promise.resolve();
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,6 +44,26 @@ function looksLikeEnglish(text) {
     : englishScore >= 2 && englishScore > spanishScore;
 }
 
+function enqueueTranslation(message, text) {
+  const job = translationQueue.then(async () => {
+    const translation = await translateEnglishToSpanish(text);
+    if (!translation) return;
+
+    await message.reply({
+      embeds: [new EmbedBuilder()
+        .setColor(0x2ecc71)
+        .setDescription(`🇪🇸 **Traducción al español**\n${translation.slice(0, 4000)}`)],
+      allowedMentions: { repliedUser: false },
+    });
+  }).catch((error) => {
+    console.error(`No se pudo traducir al español el mensaje ${message.id}:`, error);
+  });
+
+  // Una traducción fallida no bloquea la siguiente; todas conservan el orden de llegada.
+  translationQueue = job.then(() => undefined, () => undefined);
+  return job;
+}
+
 export default {
   name: Events.MessageCreate,
   async execute(message, client) {
@@ -50,19 +71,7 @@ export default {
 
     const originalText = message.content.trim();
     if (originalText && looksLikeEnglish(originalText)) {
-      try {
-        const translation = await translateEnglishToSpanish(originalText);
-        if (translation) {
-          await message.reply({
-            embeds: [new EmbedBuilder()
-              .setColor(0x2ecc71)
-              .setDescription(`🇪🇸 **Traducción al español**\n${translation.slice(0, 4000)}`)],
-            allowedMentions: { repliedUser: false },
-          });
-        }
-      } catch (error) {
-        console.error('No se pudo traducir el mensaje al español:', error);
-      }
+      void enqueueTranslation(message, originalText);
     }
 
     const mentioned = message.mentions.has(client.user);
