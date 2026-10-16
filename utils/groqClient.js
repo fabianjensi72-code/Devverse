@@ -88,3 +88,23 @@ export async function summarizeTicketWithGroq(conversation, requesterName, staff
   return completion.choices[0]?.message?.content?.trim() || 'No se pudo generar el resumen de esta conversación.';
 }
 
+/** Traduce un mensaje en inglés al español sin añadir respuestas ni explicaciones. */
+export async function translateEnglishToSpanish(text) {
+  if (!groq) throw new Error('GROQ_API_KEY no está configurada en el archivo .env.');
+
+  const completion = await queuedCompletion({
+    model: 'openai/gpt-oss-120b',
+    messages: [
+      {
+        role: 'system',
+        content: 'Traduce el mensaje recibido del inglés al español natural. Devuelve únicamente la traducción, sin prefacios, comentarios, respuestas ni comillas. Conserva nombres propios, enlaces, IDs, formato de código y el sentido original.',
+      },
+      { role: 'user', content: text.slice(0, 1800) },
+    ],
+    max_tokens: 650,
+    temperature: 0.1,
+  });
+
+  return completion.choices[0]?.message?.content?.trim() || '';
+}
+
