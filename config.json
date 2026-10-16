@@ -12,6 +12,8 @@
     "promoteYourGame": "1555814030373945364",
     "featuredGames": "",
     "createTicket": "1502442612127436960",
+    "ticketChannelId": "1502442612127436960",
+    "ticketCategoryId": "",
     "trailers": "",
     "collaboration": "",
     "commandsBot": "",
@@ -22,6 +24,7 @@
   "roles": {
     "member": "",
     "developer": "",
-    "moderator": ""
+    "moderator": "",
+    "ticketStaff": ""
   }
 }
