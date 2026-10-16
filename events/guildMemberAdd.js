@@ -1,9 +1,22 @@
 import { Events } from 'discord.js';
 import { createWelcomeCard, createWelcomePayload, getWelcomeChannelId, sendRulesWelcome } from '../utils/welcomeMessage.js';
+import { getVerificationSettings } from '../utils/robloxVerification.js';
 
 export default {
   name: Events.GuildMemberAdd,
   async execute(member) {
+    try {
+      const verification = await getVerificationSettings();
+      if (verification.guildId === member.guild.id && verification.unverifiedRoleIds?.length) {
+        const roles = verification.unverifiedRoleIds.filter((roleId) => member.guild.roles.cache.has(roleId));
+        if (roles.length) {
+          await member.roles.add(roles, 'Rol temporal para miembro pendiente de verificación de Roblox.');
+        }
+      }
+    } catch (error) {
+      console.error(`No se pudo asignar el rol pendiente de verificación a ${member.user.tag}:`, error);
+    }
+
     const welcomeChannelId = getWelcomeChannelId();
     if (!welcomeChannelId) {
       console.error('Bienvenida omitida: configura channels.welcomeChannelId en config.json.');
@@ -29,3 +42,4 @@ export default {
     }
   },
 };
+
