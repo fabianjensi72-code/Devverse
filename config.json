@@ -26,5 +26,11 @@
     "developer": "",
     "moderator": "",
     "ticketStaff": ""
+  },
+  "cooldowns": {
+    "aiUserSeconds": 20,
+    "aiGlobalSeconds": 2,
+    "ticketOpenSeconds": 60
   }
 }
+
