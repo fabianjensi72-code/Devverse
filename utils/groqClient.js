@@ -7,6 +7,20 @@ const apiKey = process.env.GROQ_API_KEY;
 const groq = apiKey && apiKey !== 'tu_groq_key_aqui'
   ? new Groq({ apiKey, fetch: globalThis.fetch })
   : null;
+const globalIntervalMs = Math.max(0, Number(config.cooldowns?.aiGlobalSeconds ?? 2)) * 1000;
+let requestQueue = Promise.resolve();
+let lastRequestAt = 0;
+
+function queuedCompletion(payload) {
+  const request = requestQueue.then(async () => {
+    const waitMs = Math.max(0, globalIntervalMs - (Date.now() - lastRequestAt));
+    if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    lastRequestAt = Date.now();
+    return groq.chat.completions.create(payload);
+  });
+  requestQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
 
 const channelNames = {
   rules: 'rules',
@@ -33,7 +47,7 @@ const TICKET_SYSTEM_PROMPT = `Eres el asistente de soporte de ${config.server?.n
 export async function askGroq(userQuestion, userTag, context = {}) {
   if (!groq) throw new Error('GROQ_API_KEY no está configurada en el archivo .env.');
 
-  const completion = await groq.chat.completions.create({
+  const completion = await queuedCompletion({
     model: 'openai/gpt-oss-120b',
     messages: [
       {
@@ -49,5 +63,28 @@ export async function askGroq(userQuestion, userTag, context = {}) {
   });
 
   return completion.choices[0]?.message?.content?.trim() || 'No pude generar una respuesta esta vez. Inténtalo de nuevo.';
+}
+
+/** Resume la conversación de un ticket para el miembro del staff que lo reclama. */
+export async function summarizeTicketWithGroq(conversation, requesterName, staffName) {
+  if (!groq) throw new Error('GROQ_API_KEY no está configurada en el archivo .env.');
+
+  const completion = await queuedCompletion({
+    model: 'openai/gpt-oss-120b',
+    messages: [
+      {
+        role: 'system',
+        content: 'Resume conversaciones de soporte en español para que un administrador entienda rápidamente el caso. Escribe una sola frase breve y natural, sin viñetas ni lista de mensajes. No inventes hechos ni des consejos; identifica el problema o motivo principal y cualquier dato importante. Si no hay contexto suficiente, dilo con claridad.',
+      },
+      {
+        role: 'user',
+        content: `Prepara un resumen para ${staffName} sobre la solicitud de ${requesterName}. Conversación reciente:\n${conversation.slice(0, 5000)}`,
+      },
+    ],
+    max_tokens: 110,
+    temperature: 0.2,
+  });
+
+  return completion.choices[0]?.message?.content?.trim() || 'No se pudo generar el resumen de esta conversación.';
 }
 
