@@ -9,7 +9,6 @@ import {
   ButtonStyle,
   EmbedBuilder,
   ModalBuilder,
-  RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -19,6 +18,11 @@ import config from '../config.json' with { type: 'json' };
 const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
 const statePath = path.join(dataDirectory, 'applications.json');
 let queue = Promise.resolve();
+
+// Ephemeral responses only make sense in guilds; DMs are already private.
+function privateReply(interaction, payload) {
+  return interaction.reply({ ...payload, ...(interaction.inGuild() ? { ephemeral: true } : {}) });
+}
 
 const commonQuestions = [
   ['Experiencia', 'Cuéntanos tu experiencia relacionada con este rol.'],
@@ -333,7 +337,7 @@ export async function handleApplicationInteraction(interaction) {
   if (interaction.isStringSelectMenu() && customId === 'application:select-role') {
     const role = config.applications.roles.find((item) => item.id === interaction.values[0]);
     if (!role) {
-      await interaction.reply({ content: 'Ese rol ya no está disponible.', ephemeral: true });
+      await privateReply(interaction, { content: 'Ese rol ya no está disponible.' });
       return true;
     }
     const draft = await updateState((state) => {
@@ -344,7 +348,7 @@ export async function handleApplicationInteraction(interaction) {
       return current;
     });
     if (!draft?.guildId) {
-      await interaction.reply({ content: 'No pude asociar este formulario al servidor. Vuelve a iniciar desde el panel.', ephemeral: true });
+      await privateReply(interaction, { content: 'No pude asociar este formulario al servidor. Vuelve a iniciar desde el panel.' });
       return true;
     }
     await interaction.showModal(createQuestionModal(role, 0));
@@ -355,10 +359,14 @@ export async function handleApplicationInteraction(interaction) {
     const page = Number(customId.split(':').at(-1));
     const draft = await updateState((state) => state.pending?.[interaction.user.id] ?? null);
     if (!draft) {
-      await interaction.reply({ content: 'Tu postulación pendiente ya no está disponible. Iníciala otra vez desde el panel.', ephemeral: true });
+      await privateReply(interaction, { content: 'Tu postulación pendiente ya no está disponible. Iníciala otra vez desde el panel.' });
       return true;
     }
     const role = config.applications.roles.find((item) => item.id === draft.roleId);
+    if (!role || !Number.isInteger(page) || page < 0 || page > 2) {
+      await privateReply(interaction, { content: 'El formulario ya no coincide con la configuración actual. Inicia una postulación nueva desde el panel.' });
+      return true;
+    }
     const questions = questionPages[draft.roleId] ?? [];
     const answers = [...draft.answers];
     const start = page * 5;
@@ -371,7 +379,7 @@ export async function handleApplicationInteraction(interaction) {
       return true;
     }
 
-      await interaction.deferReply();
+    await interaction.deferReply();
     try {
       const application = await saveCompletedApplication(interaction.user.id, answers);
       const logChannel = await interaction.client.channels.fetch(config.applications.logChannelId);
