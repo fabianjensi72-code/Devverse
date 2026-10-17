@@ -4,4 +4,5 @@ npm-debug.log*
 data/tickets.json
 data/roblox-verification.json
 data/message-warnings.json
+data/applications.json
 
