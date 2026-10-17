@@ -63,6 +63,16 @@
     "spamWindowSeconds": 8,
     "duplicateMessageLimit": 3,
     "duplicateWindowSeconds": 20
+  },
+  "applications": {
+    "enabled": false,
+    "logChannelId": "1502430789936218213",
+    "reviewerRoleId": "1502436842962944000",
+    "roles": [
+      { "id": "1502440210640928950", "name": "Desarrollador" },
+      { "id": "1502440223110332438", "name": "Helper" },
+      { "id": "1502440224326684672", "name": "Moderador" }
+    ]
   }
 }
 
