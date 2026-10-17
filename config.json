@@ -37,5 +37,21 @@
     "aiUserSeconds": 20,
     "aiGlobalSeconds": 2,
     "ticketOpenSeconds": 60
+  },
+  "security": {
+    "allowedLinkDomains": [
+      "roblox.com",
+      "youtube.com",
+      "youtu.be",
+      "github.com"
+    ],
+    "warningsExpireAfterDays": 30,
+    "timeoutAtWarnings": 3,
+    "timeoutMinutes": 10,
+    "spamMessageLimit": 5,
+    "spamWindowSeconds": 8,
+    "duplicateMessageLimit": 3,
+    "duplicateWindowSeconds": 20
   }
 }
+
