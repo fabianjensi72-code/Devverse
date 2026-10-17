@@ -72,6 +72,7 @@ export default {
       if (await enforceMessageSecurity(message, config)) return;
     } catch (error) {
       console.error('No se pudo aplicar la moderación automática:', error);
+      return;
     }
 
     const mentioned = Boolean(client.user && message.mentions.has(client.user));
