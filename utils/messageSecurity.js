@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EmbedBuilder } from 'discord.js';
 
 const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
 const warningsPath = path.join(dataDirectory, 'message-warnings.json');
@@ -80,15 +81,36 @@ function recordWarning(guildId, userId, reason, now, expiryMs, warningLimit) {
   return operation;
 }
 
-async function sendNotice(message, content) {
-  const notice = await message.reply({
-    content,
-    allowedMentions: { parse: [] },
-  }).catch((error) => {
-    console.error('No se pudo enviar el aviso de moderación:', error);
-    return null;
-  });
-  if (notice) setTimeout(() => notice.delete().catch(() => {}), 10_000).unref?.();
+async function sendNotice(message, config, description, isTimeout) {
+  const channelId = config.security?.warningChannelId;
+  if (!channelId) {
+    console.error('Aviso de moderación omitido: configura security.warningChannelId.');
+    return;
+  }
+
+  try {
+    const channel = await message.guild.channels.fetch(channelId);
+    if (!channel?.isTextBased() || typeof channel.send !== 'function') {
+      console.error(`El canal de advertencias ${channelId} no existe o no admite mensajes.`);
+      return;
+    }
+    const embed = new EmbedBuilder()
+      .setColor(isTimeout ? 0xe74c3c : 0xf1c40f)
+      .setTitle(isTimeout ? '⛔ Sanción aplicada' : '⚠️ Advertencia de moderación')
+      .setDescription(description)
+      .addFields(
+        { name: 'Miembro', value: `<@${message.author.id}>`, inline: true },
+        { name: 'Canal del incidente', value: `<#${message.channelId}>`, inline: true },
+      )
+      .setFooter({ text: 'DevVerse Studios • Moderación automática' })
+      .setTimestamp();
+    await channel.send({
+      embeds: [embed],
+      allowedMentions: { users: [message.author.id] },
+    });
+  } catch (error) {
+    console.error(`No se pudo publicar la advertencia en ${channelId}:`, error);
+  }
 }
 
 /** Returns true when the message is a moderation incident and should not be processed by the assistant. */
@@ -126,7 +148,7 @@ export async function enforceMessageSecurity(message, config) {
     const notice = timeoutApplied
       ? `⚠️ <@${message.author.id}> recibió su **${warningLimit}.ª advertencia** y quedó en timeout durante **${Math.ceil(timeoutMs / 60_000)} minutos**. El contador se reinició.`
       : `⚠️ <@${message.author.id}> llegó a **${warningLimit} advertencias**, pero Discord no permitió aplicar el timeout. Revisa los permisos y la jerarquía del bot.`;
-    await sendNotice(message, notice);
+    await sendNotice(message, config, notice, true);
     return true;
   }
 
@@ -135,7 +157,7 @@ export async function enforceMessageSecurity(message, config) {
     : reason === 'repeated_message'
       ? 'detecté mensajes repetidos'
       : 'detecté demasiados mensajes en poco tiempo';
-  await sendNotice(message, `⚠️ <@${message.author.id}>, borré tu mensaje porque ${reasonText}. Advertencia **${warning.count}/${warningLimit}**; al llegar al límite se aplica timeout por **${Math.ceil(timeoutMs / 60_000)} minutos**. Dominios permitidos: ${allowedDomains.join(', ')}.`);
+  await sendNotice(message, config, `<@${message.author.id}>, borré tu mensaje porque ${reasonText}. Advertencia **${warning.count}/${warningLimit}**; al llegar al límite se aplica timeout por **${Math.ceil(timeoutMs / 60_000)} minutos**. Dominios permitidos: ${allowedDomains.join(', ')}.`, false);
   return true;
 }
 
