@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Client, Collection, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { Client, Collection, GatewayIntentBits, Partials, REST, Routes } from 'discord.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Carga explícitamente el .env situado junto a index.js, independientemente
@@ -24,7 +24,9 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
   ],
+  partials: [Partials.Channel],
 });
 
 client.commands = new Collection();
@@ -80,3 +82,4 @@ client.on('error', (error) => console.error('Error del cliente Discord:', error)
 client.on('shardError', (error) => console.error('Error de conexión del shard:', error));
 
 await client.login(token);
+
