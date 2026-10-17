@@ -6,6 +6,7 @@ import { askGroq, translateEnglishToSpanish } from '../utils/groqClient.js';
 
 const configPath = fileURLToPath(new URL('../config.json', import.meta.url));
 const config = JSON.parse(await readFile(configPath, 'utf8'));
+const botChannelId = config.channels?.botChannelId || config.channels?.commandsBot;
 const serverName = config.server?.name ?? 'DevVerse Studios';
 const userCooldowns = new Map();
 const userCooldownMs = Math.max(0, Number(config.cooldowns?.aiUserSeconds ?? 20)) * 1000;
@@ -66,16 +67,20 @@ export default {
   async execute(message, client) {
     if (!message.guild || message.author.bot) return;
 
-    // Respuestas de IA y traducciones requieren una mención directa al bot.
-    if (!client.user || !message.mentions.has(client.user)) return;
+    const mentioned = Boolean(client.user && message.mentions.has(client.user));
+    const isBotChannel = Boolean(botChannelId) && message.channelId === botChannelId;
+    // Contesta automáticamente en #commands-bot y en el resto del servidor
+    // solo cuando alguien lo menciona directamente.
+    if (!mentioned && !isBotChannel) return;
 
     const originalText = message.content.trim();
-    if (originalText && looksLikeEnglish(originalText)) {
+    if (mentioned && originalText && looksLikeEnglish(originalText)) {
       void enqueueTranslation(message, originalText);
     }
 
     const ticketOwnerId = message.channel.topic?.match(/ticket-owner:(\\d+)/)?.[1];
     const isTicket = Boolean(ticketOwnerId);
+
     const question = message.content
       .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
       .trim();
