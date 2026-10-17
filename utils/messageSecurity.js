@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 
 const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
 const warningsPath = path.join(dataDirectory, 'message-warnings.json');
@@ -130,7 +130,29 @@ export async function enforceMessageSecurity(message, config) {
   }
   if (!reason) return false;
 
-  await message.delete().catch((error) => console.error('No se pudo borrar el mensaje moderado:', error));
+  try {
+    const botMember = message.guild.members.me ?? await message.guild.members.fetchMe();
+    if (!botMember.permissionsIn(message.channel).has(PermissionFlagsBits.ManageMessages)) {
+      await sendNotice(
+        message,
+        config,
+        `Detecté un mensaje que debía moderarse en <#${message.channelId}>, pero no pude borrarlo porque me falta **Gestionar mensajes** en ese canal. No sumé una advertencia al miembro.`,
+        false,
+      );
+      console.error(`Moderación omitida en ${message.channelId}: al bot le falta ManageMessages.`);
+      return true;
+    }
+    await message.delete();
+  } catch (error) {
+    await sendNotice(
+      message,
+      config,
+      `Detecté un mensaje que debía moderarse en <#${message.channelId}>, pero Discord rechazó el borrado. No sumé una advertencia al miembro. Revisa **Gestionar mensajes** y los permisos de la categoría.`,
+      false,
+    );
+    console.error('No se pudo borrar el mensaje moderado:', error);
+    return true;
+  }
   const warningLimit = Math.max(2, Number(security.timeoutAtWarnings ?? 3));
   const expiryMs = Math.max(1, Number(security.warningsExpireAfterDays ?? 30)) * 24 * 60 * 60 * 1000;
   const timeoutMs = Math.max(1, Number(security.timeoutMinutes ?? 10)) * 60 * 1000;
