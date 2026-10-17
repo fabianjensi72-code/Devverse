@@ -1,12 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-
-const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
-const warningsPath = path.join(dataDirectory, 'message-warnings.json');
+import { addWarning, clearActiveWarnings, logModerationAction, publishModerationWarning } from './moderationStore.js';
 const userActivity = new Map();
-let storageQueue = Promise.resolve();
 
 const defaultAllowedDomains = [
   'roblox.com',
@@ -53,66 +47,6 @@ function checkSpam(message, now, config) {
   return null;
 }
 
-async function readWarnings() {
-  try {
-    return JSON.parse(await readFile(warningsPath, 'utf8'));
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    return { users: {} };
-  }
-}
-
-function recordWarning(guildId, userId, reason, now, expiryMs, warningLimit) {
-  const operation = storageQueue.then(async () => {
-    await mkdir(dataDirectory, { recursive: true });
-    const state = await readWarnings();
-    state.users ??= {};
-    const key = `${guildId}:${userId}`;
-    const recent = (state.users[key] ?? []).filter((item) => now - item.at < expiryMs);
-    recent.push({ reason, at: now });
-    const timedOut = recent.length >= warningLimit;
-    state.users[key] = timedOut ? [] : recent;
-    const tempPath = `${warningsPath}.${process.pid}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    await rename(tempPath, warningsPath);
-    return { count: timedOut ? 3 : recent.length, timedOut };
-  });
-  storageQueue = operation.then(() => undefined, () => undefined);
-  return operation;
-}
-
-async function sendNotice(message, config, description, isTimeout) {
-  const channelId = config.security?.warningChannelId;
-  if (!channelId) {
-    console.error('Aviso de moderación omitido: configura security.warningChannelId.');
-    return;
-  }
-
-  try {
-    const channel = await message.guild.channels.fetch(channelId);
-    if (!channel?.isTextBased() || typeof channel.send !== 'function') {
-      console.error(`El canal de advertencias ${channelId} no existe o no admite mensajes.`);
-      return;
-    }
-    const embed = new EmbedBuilder()
-      .setColor(isTimeout ? 0xe74c3c : 0xf1c40f)
-      .setTitle(isTimeout ? '⛔ Sanción aplicada' : '⚠️ Advertencia de moderación')
-      .setDescription(description)
-      .addFields(
-        { name: 'Miembro', value: `<@${message.author.id}>`, inline: true },
-        { name: 'Canal del incidente', value: `<#${message.channelId}>`, inline: true },
-      )
-      .setFooter({ text: 'DevVerse Studios • Moderación automática' })
-      .setTimestamp();
-    await channel.send({
-      embeds: [embed],
-      allowedMentions: { users: [message.author.id] },
-    });
-  } catch (error) {
-    console.error(`No se pudo publicar la advertencia en ${channelId}:`, error);
-  }
-}
-
 /** Returns true when the message is a moderation incident and should not be processed by the assistant. */
 export async function enforceMessageSecurity(message, config) {
   const now = Date.now();
@@ -133,23 +67,16 @@ export async function enforceMessageSecurity(message, config) {
   try {
     const botMember = message.guild.members.me ?? await message.guild.members.fetchMe();
     if (!botMember.permissionsIn(message.channel).has(PermissionFlagsBits.ManageMessages)) {
-      await sendNotice(
-        message,
-        config,
-        `Detecté un mensaje que debía moderarse en <#${message.channelId}>, pero no pude borrarlo porque me falta **Gestionar mensajes** en ese canal. No sumé una advertencia al miembro.`,
-        false,
-      );
+      await publishModerationWarning(message.guild, config, message.author.id,
+        `Detecté un mensaje que debía moderarse en <#${message.channelId}>, pero no pude borrarlo porque me falta **Gestionar mensajes** en ese canal. No sumé una advertencia al miembro.`);
       console.error(`Moderación omitida en ${message.channelId}: al bot le falta ManageMessages.`);
       return true;
     }
     await message.delete();
   } catch (error) {
-    await sendNotice(
-      message,
-      config,
-      `Detecté un mensaje que debía moderarse en <#${message.channelId}>, pero Discord rechazó el borrado. No sumé una advertencia al miembro. Revisa **Gestionar mensajes** y los permisos de la categoría.`,
-      false,
-    );
+    await publishModerationWarning(message.guild, config, message.author.id,
+      `Detecté un mensaje que debía moderarse en <#${message.channelId}>, pero Discord rechazó el borrado. No sumé una advertencia al miembro. Revisa **Gestionar mensajes** y los permisos de la categoría.`)
+      .catch((noticeError) => console.error('No se pudo publicar el aviso de permisos:', noticeError));
     console.error('No se pudo borrar el mensaje moderado:', error);
     return true;
   }
@@ -157,7 +84,21 @@ export async function enforceMessageSecurity(message, config) {
   const expiryMs = Math.max(1, Number(security.warningsExpireAfterDays ?? 30)) * 24 * 60 * 60 * 1000;
   const timeoutMs = Math.max(1, Number(security.timeoutMinutes ?? 10)) * 60 * 1000;
   const allowedDomains = getAllowedDomains(config);
-  const warning = await recordWarning(message.guild.id, message.author.id, reason, now, expiryMs, warningLimit);
+  const warning = await addWarning({
+    guildId: message.guild.id,
+    userId: message.author.id,
+    reason,
+    source: 'automod',
+    now,
+    expiryMs,
+    warningLimit,
+  });
+  await logModerationAction(message.guild, config, {
+    userId: message.author.id,
+    action: 'Advertencia automática',
+    reason,
+    channelId: message.channelId,
+  });
 
   if (warning.timedOut) {
     let timeoutApplied = false;
@@ -167,10 +108,21 @@ export async function enforceMessageSecurity(message, config) {
     } catch (error) {
       console.error(`No se pudo aplicar timeout a ${message.author.tag}:`, error);
     }
+    if (timeoutApplied) {
+      await clearActiveWarnings(message.guild.id, message.author.id);
+      await logModerationAction(message.guild, config, {
+        userId: message.author.id,
+        action: 'Timeout automático',
+        reason: `${warningLimit} advertencias por enlaces no permitidos o spam`,
+        durationMs: timeoutMs,
+        channelId: message.channelId,
+      });
+    }
     const notice = timeoutApplied
       ? `⚠️ <@${message.author.id}> recibió su **${warningLimit}.ª advertencia** y quedó en timeout durante **${Math.ceil(timeoutMs / 60_000)} minutos**. El contador se reinició.`
       : `⚠️ <@${message.author.id}> llegó a **${warningLimit} advertencias**, pero Discord no permitió aplicar el timeout. Revisa los permisos y la jerarquía del bot.`;
-    await sendNotice(message, config, notice, true);
+    await publishModerationWarning(message.guild, config, message.author.id, notice, true, message.channelId)
+      .catch((error) => console.error('No se pudo publicar la sanción automática:', error));
     return true;
   }
 
@@ -179,7 +131,11 @@ export async function enforceMessageSecurity(message, config) {
     : reason === 'repeated_message'
       ? 'detecté mensajes repetidos'
       : 'detecté demasiados mensajes en poco tiempo';
-  await sendNotice(message, config, `<@${message.author.id}>, borré tu mensaje porque ${reasonText}. Advertencia **${warning.count}/${warningLimit}**; al llegar al límite se aplica timeout por **${Math.ceil(timeoutMs / 60_000)} minutos**. Dominios permitidos: ${allowedDomains.join(', ')}.`, false);
+  await publishModerationWarning(message.guild, config, message.author.id,
+    `<@${message.author.id}>, borré tu mensaje porque ${reasonText}. Advertencia **${warning.count}/${warningLimit}**; al llegar al límite se aplica timeout por **${Math.ceil(timeoutMs / 60_000)} minutos**. Dominios permitidos: ${allowedDomains.join(', ')}.`,
+    false,
+    message.channelId,
+  ).catch((error) => console.error('No se pudo publicar la advertencia automática:', error));
   return true;
 }
 
