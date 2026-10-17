@@ -12,7 +12,9 @@ export default {
 
   async execute(interaction) {
     const isOwner = interaction.inGuild() && interaction.user.id === interaction.guild.ownerId;
-    const isFounder = interaction.member?.roles?.cache?.has(config.applications.reviewerRoleId);
+    const memberRoles = interaction.member?.roles;
+    const isFounder = memberRoles?.cache?.has(config.applications.reviewerRoleId)
+      ?? memberRoles?.includes?.(config.applications.reviewerRoleId);
     if (!interaction.inGuild() || (!isOwner && !isFounder)) {
       await interaction.reply({ content: 'Solo el Founder puede configurar y abrir las postulaciones.', ephemeral: true });
       return;
