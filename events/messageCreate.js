@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { askGroq, translateEnglishToSpanish } from '../utils/groqClient.js';
+import { enforceMessageSecurity } from '../utils/messageSecurity.js';
 
 const configPath = fileURLToPath(new URL('../config.json', import.meta.url));
 const config = JSON.parse(await readFile(configPath, 'utf8'));
@@ -31,7 +32,7 @@ function enqueueGroq(question, userTag, context) {
 }
 
 const englishMarkers = new Set('i im ive id my mine me you your yours he she we they it this that these those the a an and or but if then because so is are was were be been being have has had do does did can could would should will may might must need want help please hello hi hey how what when where why who which someone anyone account game games roblox developer staff ticket problem issue scam scammed stolen stole hacked hack payment money purchase bought refund lost cant cannot dont didnt doesnt wasnt werent arent wasnt worked broken bug error collaboration build builder scripter'.split(' '));
-const spanishMarkers = new Set('yo mi mis me nosotros nos ellos ellas tu tus usted ustedes el la los las un una unos unas y o pero si entonces porque es son era fueron ser estado tener tengo tienes tiene ayuda hola buenas que como cuando donde quien cual alguien cuenta juego juegos desarrollador equipo ticket problema inconveniente estafa estafaron robado robaron hackearon pago dinero compra compre reembolso perdi no puedo funciona roto error colaboración construir'.split(' '));
+const spanishMarkers = new Set('yo mi mis me nosotros nos ellos ellas tu tus usted ustedes el la los las un una unos unas y o pero si entonces porque es son era fueron ser estado tener tengo tienes tiene tenía ayuda hola buenas que como cuando donde quien cual alguien cuenta juego juegos desarrollador equipo ticket problema inconveniente estafa estafaron robado robaron hackearon pago dinero compra compre reembolso perdi no puedo funciona roto error colaboración construir'.split(' '));
 
 function looksLikeEnglish(text) {
   const words = text.toLowerCase().match(/[a-záéíóúüñ]+/g) ?? [];
@@ -58,6 +59,7 @@ function enqueueTranslation(message, text) {
     console.error(`No se pudo traducir al español el mensaje ${message.id}:`, error);
   });
 
+  // Una traducción fallida no bloquea la siguiente; todas conservan el orden de llegada.
   translationQueue = job.then(() => undefined, () => undefined);
   return job;
 }
@@ -66,6 +68,11 @@ export default {
   name: Events.MessageCreate,
   async execute(message, client) {
     if (!message.guild || message.author.bot) return;
+    try {
+      if (await enforceMessageSecurity(message, config)) return;
+    } catch (error) {
+      console.error('No se pudo aplicar la moderación automática:', error);
+    }
 
     const mentioned = Boolean(client.user && message.mentions.has(client.user));
     const isBotChannel = Boolean(botChannelId) && message.channelId === botChannelId;
@@ -78,7 +85,7 @@ export default {
       void enqueueTranslation(message, originalText);
     }
 
-    const ticketOwnerId = message.channel.topic?.match(/ticket-owner:(\\d+)/)?.[1];
+    const ticketOwnerId = message.channel.topic?.match(/ticket-owner:(\d+)/)?.[1];
     const isTicket = Boolean(ticketOwnerId);
 
     const question = message.content
@@ -106,7 +113,7 @@ export default {
 
     try {
       await message.channel.sendTyping();
-      const ticketType = message.channel.topic?.match(/type:([\\w-]+)/)?.[1];
+      const ticketType = message.channel.topic?.match(/type:([\w-]+)/)?.[1];
       const answer = await enqueueGroq(question, message.author.tag, {
         inTicket: isTicket,
         ticketType,
@@ -128,3 +135,4 @@ export default {
     }
   },
 };
+
