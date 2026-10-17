@@ -18,6 +18,7 @@ import config from '../config.json' with { type: 'json' };
 const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
 const statePath = path.join(dataDirectory, 'applications.json');
 let queue = Promise.resolve();
+let dmApplicationQueue = Promise.resolve();
 
 // Ephemeral responses only make sense in guilds; DMs are already private.
 function privateReply(interaction, payload) {
@@ -168,26 +169,14 @@ function buildApplicationMenu() {
   return new ActionRowBuilder().addComponents(menu);
 }
 
-function createQuestionModal(role, page) {
+function questionEmbed(role, index) {
   const questions = questionPages[role.id];
-  const start = page * 5;
-  const modal = new ModalBuilder()
-    .setCustomId(`application:form:${page}`)
-    .setTitle(`${role.name} • Parte ${page + 1}/3`);
-  for (let index = start; index < Math.min(start + 5, questions.length); index += 1) {
-    const [label, placeholder] = questions[index];
-    modal.addComponents(new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId(`answer:${index}`)
-        .setLabel(label.slice(0, 45))
-        .setPlaceholder(placeholder.slice(0, 100))
-        .setStyle(TextInputStyle.Paragraph)
-        .setMinLength(5)
-        .setMaxLength(500)
-        .setRequired(true),
-    ));
-  }
-  return modal;
+  const [label, prompt] = questions[index];
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`📝 Postulación • ${role.name}`)
+    .setDescription(`**Pregunta ${index + 1} de ${questions.length}: ${label}**\n${prompt}\n\nResponde escribiendo tu respuesta en este chat. Puedes escribir **cancelar** para detener la postulación.`)
+    .setFooter({ text: 'Tus respuestas se guardan automáticamente.' });
 }
 
 function recommendation(answers) {
@@ -203,6 +192,10 @@ function recommendation(answers) {
 async function saveCompletedApplication(userId, answers) {
   const draft = await updateState((state) => state.pending?.[userId] ?? null);
   if (!draft) throw new Error('No encontré tu formulario pendiente. Vuelve a iniciar desde el panel.');
+  if (draft.applicationId) {
+    const existing = await getApplication(draft.applicationId);
+    if (existing) return existing;
+  }
   const role = config.applications.roles.find((item) => item.id === draft.roleId);
   const id = randomUUID().slice(0, 12);
   const recommendationResult = recommendation(answers);
@@ -221,9 +214,109 @@ async function saveCompletedApplication(userId, answers) {
   await updateState((state) => {
     state.applications ??= {};
     state.applications[id] = application;
-    delete state.pending[userId];
+    state.pending[userId].applicationId = id;
   });
   return application;
+}
+
+async function finishApplication(message, draft) {
+  const questions = questionPages[draft.roleId] ?? [];
+  const role = config.applications.roles.find((item) => item.id === draft.roleId);
+  if (!role || draft.answers.length !== questions.length) return false;
+
+  const application = await saveCompletedApplication(message.author.id, draft.answers);
+  const logChannel = await message.client.channels.fetch(config.applications.logChannelId);
+  if (!logChannel?.isTextBased() || typeof logChannel.send !== 'function') {
+    throw new Error('El canal privado de postulaciones no está configurado.');
+  }
+  const transcript = new AttachmentBuilder(Buffer.from(applicationTranscript(application), 'utf8'), { name: `postulacion-${application.id}.txt` });
+  const reviewMessage = await logChannel.send({
+    embeds: [reviewEmbed(application)],
+    files: [transcript],
+    components: reviewButtons(application.id),
+    allowedMentions: { parse: [] },
+  });
+  await updateState((state) => {
+    state.applications[application.id].logChannelId = reviewMessage.channelId;
+    state.applications[application.id].logMessageId = reviewMessage.id;
+    delete state.pending[message.author.id];
+  });
+  await message.channel.send('✅ ¡Listo! Tu postulación fue enviada al Founder para revisión. Te avisaré por este DM cuando haya una decisión.');
+  return true;
+}
+
+async function processApplicationMessage(message) {
+  const state = await readState();
+  const draft = state.pending?.[message.author.id];
+  if (!draft) return false;
+
+  const content = message.content.trim();
+  if (content.toLowerCase() === 'cancelar') {
+    await updateState((current) => { delete current.pending[message.author.id]; });
+    await message.channel.send('Postulación cancelada. Si quieres volver a empezar, pulsa **Postúlate** en el panel del servidor.');
+    return true;
+  }
+
+  const role = config.applications.roles.find((item) => item.id === draft.roleId);
+  const questions = questionPages[draft.roleId] ?? [];
+  if (!role || !questions.length) {
+    await message.channel.send('No encuentro el rol de tu formulario. Vuelve a iniciar la postulación desde el panel del servidor.');
+    return true;
+  }
+
+  if (draft.answers.length >= questions.length) {
+    try {
+      await finishApplication(message, draft);
+    } catch (error) {
+      console.error('No se pudo enviar la postulación completa:', error);
+      await message.channel.send('Ya guardé tus respuestas, pero no pude enviarlas al equipo. Avísale al staff para que revise el canal de postulaciones.');
+    }
+    return true;
+  }
+
+  if (content.length < 5) {
+    await message.channel.send('Escribe una respuesta un poco más detallada (al menos 5 caracteres) para continuar.');
+    await message.channel.send({ embeds: [questionEmbed(role, draft.answers.length)] });
+    return true;
+  }
+  if (content.length > 1800) {
+    await message.channel.send('Tu respuesta es muy larga. Resúmela a menos de 1800 caracteres, por favor.');
+    await message.channel.send({ embeds: [questionEmbed(role, draft.answers.length)] });
+    return true;
+  }
+
+  const nextDraft = await updateState((current) => {
+    const pending = current.pending?.[message.author.id];
+    if (!pending || pending.roleId !== draft.roleId) return null;
+    pending.answers ??= [];
+    pending.answers.push(content);
+    return pending;
+  });
+  if (!nextDraft) {
+    await message.channel.send('No pude guardar la respuesta. Vuelve a seleccionar el rol desde el panel e inténtalo otra vez.');
+    return true;
+  }
+
+  if (nextDraft.answers.length >= questions.length) {
+    await message.channel.send('📨 Ya tengo todas tus respuestas. Estoy enviando la postulación al equipo…');
+    try {
+      await finishApplication(message, nextDraft);
+    } catch (error) {
+      console.error('No se pudo enviar la postulación completa:', error);
+      await message.channel.send('Guardé tus respuestas, pero no pude enviarlas al equipo. Avísale al staff para que revise el canal de postulaciones.');
+    }
+    return true;
+  }
+
+  await message.channel.send({ embeds: [questionEmbed(role, nextDraft.answers.length)] });
+  return true;
+}
+
+export function handleApplicationMessage(message) {
+  if (!message || message.guild || message.author?.bot) return Promise.resolve(false);
+  const operation = dmApplicationQueue.then(() => processApplicationMessage(message));
+  dmApplicationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 function reviewEmbed(application) {
@@ -324,7 +417,7 @@ export async function handleApplicationInteraction(interaction) {
       });
       const dm = await interaction.user.createDM();
       await dm.send({
-        embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('📝 Postulación a DevVerse Studios').setDescription('Primero elige el rol. Después completarás **15 preguntas** en tres formularios privados. Puedes cerrar el DM y volver más tarde, pero si reinicias el bot el formulario pendiente se conserva.')],
+        embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('📝 Postulación a DevVerse Studios').setDescription('Primero elige el rol. Después te haré **15 preguntas, una por una** en este chat. Responde con un mensaje normal; puedes escribir **cancelar** cuando quieras.')],
         components: [buildApplicationMenu()],
       });
       await interaction.reply({ content: 'Te envié un mensaje privado para comenzar la postulación.', ephemeral: true });
@@ -351,50 +444,11 @@ export async function handleApplicationInteraction(interaction) {
       await privateReply(interaction, { content: 'No pude asociar este formulario al servidor. Vuelve a iniciar desde el panel.' });
       return true;
     }
-    await interaction.showModal(createQuestionModal(role, 0));
-    return true;
-  }
-
-  if (interaction.isModalSubmit() && customId.startsWith('application:form:')) {
-    const page = Number(customId.split(':').at(-1));
-    const draft = await updateState((state) => state.pending?.[interaction.user.id] ?? null);
-    if (!draft) {
-      await privateReply(interaction, { content: 'Tu postulación pendiente ya no está disponible. Iníciala otra vez desde el panel.' });
-      return true;
-    }
-    const role = config.applications.roles.find((item) => item.id === draft.roleId);
-    if (!role || !Number.isInteger(page) || page < 0 || page > 2) {
-      await privateReply(interaction, { content: 'El formulario ya no coincide con la configuración actual. Inicia una postulación nueva desde el panel.' });
-      return true;
-    }
-    const questions = questionPages[draft.roleId] ?? [];
-    const answers = [...draft.answers];
-    const start = page * 5;
-    for (let index = start; index < Math.min(start + 5, questions.length); index += 1) {
-      answers[index] = interaction.fields.getTextInputValue(`answer:${index}`).trim();
-    }
-    if (page < 2) {
-      await updateState((state) => { state.pending[interaction.user.id].answers = answers; });
-      await interaction.showModal(createQuestionModal(role, page + 1));
-      return true;
-    }
-
-    await interaction.deferReply();
-    try {
-      const application = await saveCompletedApplication(interaction.user.id, answers);
-      const logChannel = await interaction.client.channels.fetch(config.applications.logChannelId);
-      if (!logChannel?.isTextBased() || typeof logChannel.send !== 'function') throw new Error('El canal privado de postulaciones no está configurado.');
-      const transcript = new AttachmentBuilder(Buffer.from(applicationTranscript(application), 'utf8'), { name: `postulacion-${application.id}.txt` });
-      const reviewMessage = await logChannel.send({ embeds: [reviewEmbed(application)], files: [transcript], components: reviewButtons(application.id), allowedMentions: { parse: [] } });
-      await updateState((state) => {
-        state.applications[application.id].logChannelId = reviewMessage.channelId;
-        state.applications[application.id].logMessageId = reviewMessage.id;
-      });
-      await interaction.editReply('¡Postulación enviada! El Founder la revisará y recibirás el resultado por privado.');
-    } catch (error) {
-      console.error('No se pudo registrar la postulación:', error);
-      await interaction.editReply('No pude enviar tu postulación al equipo. Avísale al staff para que revise el registro.');
-    }
+    await interaction.update({
+      embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('📝 Rol seleccionado').setDescription(`Elegiste **${role.name}**. Empezamos la postulación aquí mismo, pregunta por pregunta.`)],
+      components: [],
+    });
+    await interaction.channel.send({ embeds: [questionEmbed(role, 0)] });
     return true;
   }
 
