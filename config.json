@@ -39,6 +39,7 @@
     "ticketOpenSeconds": 60
   },
   "security": {
+    "warningChannelId": "1560844434923458733",
     "allowedLinkDomains": [
       "roblox.com",
       "youtube.com",
