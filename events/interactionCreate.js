@@ -124,8 +124,17 @@ export default {
     try {
       if (await handleComponent(interaction)) return;
     } catch (error) {
-      console.error('Error manejando componente interactivo:', error);
-      const response = { content: 'Hubo un problema al procesar esta interacción. Inténtalo de nuevo.', ephemeral: true };
+      console.error('Error manejando interacción:', {
+        customId: interaction.customId ?? null,
+        commandName: interaction.commandName ?? null,
+        guildId: interaction.guildId ?? null,
+        userId: interaction.user?.id ?? null,
+        error,
+      });
+      const response = {
+        content: 'Hubo un problema al procesar esta interacción. Inténtalo de nuevo; el error quedó registrado para que el staff pueda revisarlo.',
+        ...(interaction.inGuild() ? { ephemeral: true } : {}),
+      };
       if (interaction.deferred || interaction.replied) await interaction.followUp(response).catch(console.error);
       else await interaction.reply(response).catch(console.error);
       return;
