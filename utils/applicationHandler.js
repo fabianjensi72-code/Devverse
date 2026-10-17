@@ -150,7 +150,9 @@ export async function setApplicationsOpen(guild, enabled) {
 function founderOnly(interaction) {
   if (!interaction.guild) return false;
   const isOwner = interaction.user.id === interaction.guild.ownerId;
-  const isFounder = interaction.member?.roles?.cache?.has(config.applications.reviewerRoleId);
+  const memberRoles = interaction.member?.roles;
+  const isFounder = memberRoles?.cache?.has(config.applications.reviewerRoleId)
+    ?? memberRoles?.includes?.(config.applications.reviewerRoleId);
   return isOwner || Boolean(isFounder);
 }
 
@@ -457,8 +459,8 @@ export async function handleApplicationInteraction(interaction) {
   }
 
   if (interaction.isModalSubmit() && customId.startsWith('application:denyreason:')) {
-    if (!ownerOnly(interaction)) {
-      await interaction.reply({ content: 'Solo el dueño del servidor puede revisar postulaciones.', ephemeral: true });
+    if (!founderOnly(interaction)) {
+      await interaction.reply({ content: 'Solo el Founder puede revisar postulaciones.', ephemeral: true });
       return true;
     }
     const id = customId.split(':').at(-1);
