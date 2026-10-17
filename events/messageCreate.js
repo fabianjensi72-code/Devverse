@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { askGroq, translateEnglishToSpanish } from '../utils/groqClient.js';
 import { enforceMessageSecurity } from '../utils/messageSecurity.js';
+import { handleApplicationMessage } from '../utils/applicationHandler.js';
 
 const configPath = fileURLToPath(new URL('../config.json', import.meta.url));
 const config = JSON.parse(await readFile(configPath, 'utf8'));
@@ -67,7 +68,16 @@ function enqueueTranslation(message, text) {
 export default {
   name: Events.MessageCreate,
   async execute(message, client) {
-    if (!message.guild || message.author.bot) return;
+    if (message.author.bot) return;
+    if (!message.guild) {
+      try {
+        await handleApplicationMessage(message);
+      } catch (error) {
+        console.error(`Error procesando formulario por DM de ${message.author.id}:`, error);
+        await message.channel.send('No pude guardar esa respuesta por un error. Inténtalo otra vez en un momento.').catch(() => {});
+      }
+      return;
+    }
     try {
       if (await enforceMessageSecurity(message, config)) return;
     } catch (error) {
