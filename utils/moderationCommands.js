@@ -8,8 +8,9 @@ export function isModerationStaff(interaction, action = 'manage') {
   const requiredPermission = action === 'timeout' ? 'ModerateMembers' : 'ManageMessages';
   if (interaction.memberPermissions?.has(requiredPermission)) return true;
   const allowedRoles = action === 'timeout' ? timeoutIds : ids;
-  const roleCache = interaction.member?.roles?.cache;
-  return Boolean(roleCache?.some((role) => allowedRoles.includes(role.id)));
+  const memberRoles = interaction.member?.roles;
+  if (memberRoles?.cache) return Boolean(memberRoles.cache.some((role) => allowedRoles.includes(role.id)));
+  return Boolean(memberRoles?.some?.((roleId) => allowedRoles.includes(roleId)));
 }
 
 export function moderationConfig() {
