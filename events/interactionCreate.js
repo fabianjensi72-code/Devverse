@@ -4,10 +4,12 @@ import config from '../config.json' with { type: 'json' };
 import { HELP_TOPICS } from '../commands/ayuda.js';
 import { handleTicketInteraction } from '../utils/ticketHandler.js';
 import { handleRobloxVerificationInteraction } from '../utils/robloxVerificationHandler.js';
+import { handleApplicationInteraction } from '../utils/applicationHandler.js';
 
 const channels = config.channels ?? {};
 
 async function handleComponent(interaction) {
+  if (await handleApplicationInteraction(interaction)) return true;
   if (await handleRobloxVerificationInteraction(interaction)) return true;
   if (await handleTicketInteraction(interaction)) return true;
 
