@@ -54,7 +54,10 @@
       "roblox.com",
       "youtube.com",
       "youtu.be",
-      "github.com"
+      "github.com",
+      "discord.gg",
+      "discord.com",
+      "discordapp.com"
     ],
     "warningsExpireAfterDays": 30,
     "timeoutAtWarnings": 3,
