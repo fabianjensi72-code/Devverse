@@ -363,7 +363,7 @@ async function createTicket(interaction, type) {
       : '**Equipo de soporte**';
 
     await channel.send({
-      content: `📬 **Nueva solicitud** • <@${userId}> • ${staffMention}\nGracias por escribirnos. Añade aquí cualquier información que ayude al equipo a atenderte.`,
+      content: `📬 **Nuevo ticket** • <@${userId}> • ${staffMention}\nEste es tu espacio privado para hablar con el equipo. Cuéntanos lo que necesitas cuando quieras; no tienes que completar nada más ahora.`,
       embeds: [embed],
       components: [ticketControls()],
       allowedMentions: { users: [userId], roles: ticketStaffRoleIds },
