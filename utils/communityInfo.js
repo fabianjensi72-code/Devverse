@@ -5,6 +5,19 @@ import { getTopActiveMembers } from './communityActivity.js';
 const staffPattern = /\b(staff|admin(?:istrador(?:es)?)?|moderador(?:es)?|moderaci[oó]n|helper|equipo|owner|dueñ[oa]|founder|fundador(?:a|es)?)\b/i;
 const ownerPattern = /\b(owner|dueñ[oa]|fundador(?:a)?|founder)\b/i;
 const activityPattern = /\b(m[aá]s activo(?:s|as)?|actividad|participa(?:nte|ci[oó]n)|quien(?:es)? habla(?:n)? m[aá]s|miembro m[aá]s activo)\b/i;
+const memberFetches = new Map();
+
+async function ensureGuildMembersLoaded(guild) {
+  let pending = memberFetches.get(guild.id);
+  if (!pending) {
+    // GuildMembers intent is enabled. Fetch once on demand so role.members
+    // contains actual members, without fetching on every message.
+    pending = guild.members.fetch();
+    memberFetches.set(guild.id, pending);
+    pending.catch(() => memberFetches.delete(guild.id));
+  }
+  return pending;
+}
 
 function getStaffRoles(guild) {
   const configured = new Set([
@@ -30,12 +43,19 @@ async function staffLines(guild, question) {
   const lines = [];
   if (ownerPattern.test(question)) lines.push(`**Dueño del servidor:** ${await getOwner(guild)}`);
   if (staffPattern.test(question)) {
+    try {
+      await ensureGuildMembersLoaded(guild);
+    } catch (error) {
+      console.error(`No se pudieron cargar los miembros de ${guild.id}:`, error);
+      lines.push('No pude consultar los miembros de los roles. Revisa que el intent **Server Members Intent** esté activado en el portal de Discord y en el bot.');
+      return lines;
+    }
     const roles = getStaffRoles(guild);
     if (!roles.length) lines.push('No encontré roles de staff configurados.');
     for (const role of roles) {
       const members = [...role.members.values()].filter((member) => !member.user.bot);
       const names = members.slice(0, 10).map((member) => `<@${member.id}>`);
-      lines.push(`**${role.name}:** ${names.length ? names.join(', ') : 'No hay miembros cargados con este rol.'}`);
+      lines.push(`**${role.name}:** ${names.length ? names.join(', ') : 'No hay miembros con este rol.'}`);
     }
   }
   return lines;
