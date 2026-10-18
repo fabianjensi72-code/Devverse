@@ -8,7 +8,6 @@ import { handleApplicationMessage } from '../utils/applicationHandler.js';
 
 const configPath = fileURLToPath(new URL('../config.json', import.meta.url));
 const config = JSON.parse(await readFile(configPath, 'utf8'));
-const botChannelId = config.channels?.botChannelId || config.channels?.commandsBot;
 const serverName = config.server?.name ?? 'DevVerse Studios';
 const userCooldowns = new Map();
 const userCooldownMs = Math.max(0, Number(config.cooldowns?.aiUserSeconds ?? 20)) * 1000;
@@ -86,10 +85,8 @@ export default {
     }
 
     const mentioned = Boolean(client.user && message.mentions.has(client.user));
-    const isBotChannel = Boolean(botChannelId) && message.channelId === botChannelId;
-    // Contesta automáticamente en #commands-bot y en el resto del servidor
-    // solo cuando alguien lo menciona directamente.
-    if (!mentioned && !isBotChannel) return;
+    // La IA solo consume Groq cuando alguien menciona al bot, en cualquier canal.
+    if (!mentioned) return;
 
     const originalText = message.content.trim();
     if (mentioned && originalText && looksLikeEnglish(originalText)) {
