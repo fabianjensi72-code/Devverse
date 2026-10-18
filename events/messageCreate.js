@@ -5,6 +5,8 @@ import path from 'node:path';
 import { askGroq, translateEnglishToSpanish } from '../utils/groqClient.js';
 import { enforceMessageSecurity } from '../utils/messageSecurity.js';
 import { handleApplicationMessage } from '../utils/applicationHandler.js';
+import { recordMemberMessage } from '../utils/communityActivity.js';
+import { replyWithCommunityInfo } from '../utils/communityInfo.js';
 
 const configPath = fileURLToPath(new URL('../config.json', import.meta.url));
 const config = JSON.parse(await readFile(configPath, 'utf8'));
@@ -83,6 +85,7 @@ export default {
       console.error('No se pudo aplicar la moderación automática:', error);
       return;
     }
+    recordMemberMessage(message.guild.id, message.author.id, message.createdTimestamp);
 
     const mentioned = Boolean(client.user && message.mentions.has(client.user));
     // La IA solo consume Groq cuando alguien menciona al bot, en cualquier canal.
@@ -103,6 +106,7 @@ export default {
       await message.reply('¡Hola! 👋 Menciónname con tu pregunta y te ayudaré con DevVerse Studios.').catch(console.error);
       return;
     }
+    if (await replyWithCommunityInfo(message, question)) return;
 
     const now = Date.now();
     for (const [userId, expiresAt] of userCooldowns) {
